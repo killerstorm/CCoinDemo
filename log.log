@@ -1,0 +1,40 @@
+Sitting #1: August 14, 2013
+> Git clone'd CCoin-agent, Crypto, ECDSA, Electrum, and KDF
+> Added Address, Wallet, and Account classes into CCoinDemo.py
+> Wallet stores the session and handles commands
+> Address stores an ECDSA and a Base-58 pub-priv keypair
+> Account stores addresses and handles saving, registering, logging in, and encryption
+> Partway through bug crunching my mouse runs out of battery, and all the batteries in my house are dead.
+> Good thing I know shortcuts for everything B) #sweg
+> Util.py handles all utility stuff including conversion and encryption
+
+Need to add:
+> Check balance
+> Send
+> Pretty much everything. Hah.
+
+Sitting #2: August 14, 2013
+> Added get balance via blockchain.info
+> Still dont have a battery ):
+> Although, when I said I know shortcuts for everything, I wasn't kidding
+> I literally have not used a mouse for 3 hours and I'm getting around perfectly.
+> Partway through implementing coloured bit
+> Bass on my subwoofers shake my bamboo plant off my shelf
+> It falls on a plate that I was eating
+> Shatters it. Pieces of broken plate fly everywhere, and water too
+> I yell "FUCK", get up, wipe off the water and plate from the desk
+> Pick up the pieces of plate and throw it away
+> Still tons of shards on the floor
+> Get a broom and brush them into the trash
+> Thanks Nero, you broke one of my plates, got everything wet, broke one of my bamboos, and interupted my meal and programming session
+> Back to programming
+> Removed CAWallet from agent.py. I feel it would be better for the wallet to own the colourer agent as a child, as opposed to the agent owning the wallet.
+> This way the wallet is centralised on the wallet itself as opposed to updates from the colourer agent.
+> I have no idea what outindex is so I sent you an email.
+> Reddit while waiting for you to reply. *sigh*
+> Began to implement coloured coin support
+> Finished
+
+Need to add:
+> Send
+> Bug crushing
