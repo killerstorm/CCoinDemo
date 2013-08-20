@@ -1,4 +1,5 @@
 # CCoinDemo
+# Last edited - Aug 20 2013 2:44 PST 
 import hashlib
 import ecdsa
 import util
@@ -175,19 +176,18 @@ class Account():
 		if allBalance != self.allBalanceCache: # Check for coloured-ness of all coins cuz new coins are here!
 			self.colourer.ccagent.update()
 
-			balances = {"balance":0}
+			balances = {0:[0, "balance"]}
 
 			for addr in addressData:
 				for utxo in addr["unspent_outputs"]:
-					print utxo["tx_hash"], utxo["tx_output_n"]
-					utxodata = self.colourer.ccagent.color_data.get_any(utxo["tx_hash"], utxo["tx_output_n"])
-					print utxodata
+					utxohash = utxo["tx_hash"].decode("hex")[::-1].encode("hex")
+					utxodata = self.colourer.ccagent.color_data.get_any(utxohash, utxo["tx_output_n"])
 					if utxodata == []:
-						balances["balance"] += utxo["value"]
-					elif len(utxodata) == 3:
-						colour_id = utxodata[0]
-						value = utxodata[1]
-						label = utxodata[2]
+						balances[0][0] += utxo["value"]
+					elif len(utxodata) == 1:
+						colour_id = utxodata[0][0]
+						value = utxodata[0][1]
+						label = utxodata[0][2]
 						if not colour_id in balances:
 							balances[colour_id] = [value, label]
 						else:
@@ -196,9 +196,10 @@ class Account():
 			#self.setColourChecked(checked)
 			self.balanceCaches = balances
 
-			print balances
-			#for i in balances:
-			#	print "%s: %f" % (balances[i][1], balances[i][0])
+			maxLabelSize = len(balances[max(balances, key=lambda i: len(balances[i][1]))][1])
+
+			for i in balances.keys():
+				print "(%i) %s: %d" % (i, balances[i][1].ljust(maxLabelSize, " "), balances[i][0])
 
 	#def getColourChecked(self):
 	#	try:
@@ -214,7 +215,12 @@ class Account():
 	#		f.write(i + "\n")
 	#	f.close()
 
-	def send(source_address, wifs, destination_address, dcolourid = None):
+	def send(self, ddestination_address, dcolourid = None):
+		destination_address = [ddestination_address]
+		source_address = [self.addresses[i].pubkey for i in range(len(self.addresses))]
+		wifs = [self.addresses[i].privkey for i in range(len(self.addresses))]
+
+
 		self.colourer.ccagent.update()
 
 		total_value = 0
@@ -224,12 +230,12 @@ class Account():
 			coins_sources = blockchain_info.coin_sources_for_address(bca)
 
 			for source in coins_sources:
-				txhashhex = source[0].encode("hex")
+				txhashhex = source[0][::-1].encode("hex")
 				txn = source[1]
 				utxodata = self.colourer.ccagent.color_data.get_any(txhashhex, txn)
-				if not utxodata: utxodata = (None)
+				if not utxodata: utxodata = [[None]]
 
-				if not utxodata[0] == dcolourid:
+				if not utxodata[0][0] == dcolourid:
 					coins_sources.remove(source)
 
 			coins_from.extend(coins_sources)
@@ -261,7 +267,10 @@ class Account():
 		tx_hex = binascii.hexlify(tx_bytes).decode("utf8")
 		recommended_tx_fee = tx_fee.recommended_fee_for_tx(new_tx)
 
-		return tx_hex
+		print tx_hex
+
+		URL = "http://blockchain.info/pushtx"
+		urllib2.urlopen(URL, data=tx_hex)
 
 class Wallet():
 	def __init__(self):
@@ -288,6 +297,7 @@ class Wallet():
 			print "Show keys"
 			print "New address"
 			print "Show Balance"
+			print "Send"
 			print "Save"
 			print "Quit"
 			m = raw_input("> ").lower()
@@ -300,7 +310,12 @@ class Wallet():
 				self.account.newAddress()
 			elif m in "balance.bal.show bal.show balance".split("."):
 				self.account.getBalance()
-			elif m in "save s".split(" "):
+			elif m == "send":
+				daa = raw_input("Destination Address > ")
+				amount = float(raw_input("Amount > "))
+				colour = int(raw_input("Colour ID > "))
+				self.account.send([daa, amount], colour)
+			elif m == "save":
 				self.account.save()
 			elif m in "quit q close".split(" "):
 				self.account.save()
