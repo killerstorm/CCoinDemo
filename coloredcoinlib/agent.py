@@ -10,7 +10,7 @@ class MempoolColorData(object):
         self.txs = dict()
     def get(self, color_id, txhash, outindex):
         return None
-    def has(self, txhash):
+    def has_tx(self, txhash):
         return False
     def get_any(self, txhash, outindex):
         return []
@@ -33,7 +33,7 @@ class ThickColorData(ColorData):
 
     def get(self, color_id, txhash, outindex):
         color_id = self.resolve_color_id(color_id)
-        if self.mempoolcd.has(txhash):
+        if self.mempoolcd.has_tx(txhash):
             return self.mempoolcd.get_any(txhash, outindex)
         else:
             return self.cdstore.get_any(txhash, outindex)

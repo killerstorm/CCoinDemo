@@ -1,14 +1,19 @@
 # CCoinDemo
-# Last edited - Aug 20 2013 2:44 PST 
+
 import hashlib
 import ecdsa
 import util
-from Crypto.Cipher import AES
+#from Crypto.Cipher import AES
+import json
 from json import loads, dumps
 import urllib2
+from collections import defaultdict
 
 import binascii
 import io
+
+from mylib import TransactionData
+
 
 from pycoin import encoding
 from pycoin.convention import tx_fee, btc_to_satoshi, satoshi_to_btc
@@ -19,25 +24,29 @@ sha256 = lambda h: hashlib.sha256(h).digest()
 ripemd160 = lambda h: hashlib.new("ripemd160", h).digest()
 md5 = lambda h: hashlib.md5(h).digest()
 
+txdata = TransactionData()
+
 class Colourer():
 	def __init__(self):
-		from ccoinagent import agent
-		from ccoinagent import blockchain
-		from ccoinagent import builder
-		from ccoinagent import colordef
-		from ccoinagent import store
+		from coloredcoinlib import agent
+		from coloredcoinlib import blockchain
+		from coloredcoinlib import builder
+		from coloredcoinlib import colordef
+		from coloredcoinlib import store
 
 		# Ripped from test.py
 
-		self.blockchain_state = blockchain.BlockchainState("http://bitcoinrpc:6dE98wfc33UN8HacoWSHnyM3SP6qZv74ejX1p4RTufBo@localhost:8332/")
+                config = None
+                with open("config.json", "r") as fp:
+                        config = json.load(fp)
+
+		self.blockchain_state = blockchain.BlockchainState(config['url'])
 		self.store_conn = store.DataStoreConnection("color.db")
 
 		self.cdstore = store.ColorDataStore(self.store_conn.conn)
 		self.metastore = store.ColorMetaStore(self.store_conn.conn)
 
-		genesis = {'txhash': 'a81a64bf90635b7a4313a96b850ced4ae579bef1ada11d485090f8bfbb7cf456',
-				   'outindex': 0,
-				   'height': 252730}
+		genesis = config['genesis']
 
 		self.colordef1 = colordef.OBColorDefinition(1, genesis)
 		self.colordefman = agent.ColorDefinitionManager()
@@ -46,8 +55,10 @@ class Colourer():
 		
 		self.mempoolcd = agent.MempoolColorData(self.blockchain_state)
 		self.cdata = agent.ThickColorData(self.cdbuilder, self.mempoolcd, self.blockchain_state, self.colordefman, self.cdstore)
+                wallet = agent.CAWallet()
 
-		self.ccagent = agent.ColoredCoinAgent(self.blockchain_state, self.cdata)
+		self.ccagent = agent.ColoredCoinAgent(self.blockchain_state, self.cdata, wallet)
+        
 		self.ccagent.update()
 
 class Address():
@@ -86,11 +97,6 @@ class Address():
 	def getJSONData(self):
 		return {"pubkey":self.pubkey, "privkey":self.privkey, "rawPrivkey":self.rawPrivkey.encode("hex"), "rawPubkey":self.rawPubkey.encode("hex")}
 
-	def getData(self):
-		jsonData = urllib2.urlopen("http://blockchain.info/unspent?active=%s" % self.pubkey).read()
-		data = loads(jsonData)
-		return data
-
 class Account():
 	def __init__(self, addresses, username, passwordKey):
 		self.addresses = addresses
@@ -126,8 +132,10 @@ class Account():
 		cipherData = f.read()
 		f.close()
 
-		cipher = AES.new(passwordKey)
-		jsonData = util.removeNearest16Pad(cipher.decrypt(cipherData))
+                jsonData = cipherData
+
+#		cipher = AES.new(passwordKey)
+#		jsonData = util.removeNearest16Pad(cipher.decrypt(cipherData))
 
 		data = loads(jsonData)
 
@@ -143,9 +151,12 @@ class Account():
 		data["addresses"] = [i.getJSONData() for i in self.addresses]
 		jsondata = dumps(data)
 
-		cipher = AES.new(self.passwordKey)
-		padData = util.padToNearest16(jsondata)
-		cipherData = cipher.encrypt(padData)
+#		cipher = AES.new(self.passwordKey)
+#		padData = util.padToNearest16(jsondata)
+#		cipherData = cipher.encrypt(padData)
+
+                cipherData = jsondata
+
 		fname = md5(self.username).encode("hex") + ".walletdat"
 		f = open(fname, "w")
 		f.write(cipherData)
@@ -163,100 +174,69 @@ class Account():
 		self.addresses.append(Address.new())
 		print "Public Key: %s Private Key: %s" % (self.addresses[-1].pubkey, self.addresses[-1].privkey)
 
+        def getAllUTXOs(self):
+                utxos = []
+		for a in self.addresses:
+                        utxos.extend(txdata.unspent.get_for_address(a.pubkey))
+                return utxos
+
+
 	def getBalance(self):
-		addressData = []
-		for i in self.addresses:
-			addressData.append(i.getData())
+                utxos = self.getAllUTXOs()
+                self.colourer.ccagent.update()
 
-		allBalance = 0
-		for address in addressData:
-			for utxo in address["unspent_outputs"]:
-				allBalance += int(utxo["value"])
+                balances = defaultdict(int)
 
-		if allBalance != self.allBalanceCache: # Check for coloured-ness of all coins cuz new coins are here!
-			self.colourer.ccagent.update()
+                for utxo in utxos:
+                        utxodata = self.colourer.ccagent.color_data.get_any(utxo.txhash, utxo.outindex)
+                        if utxodata == []:
+                                balances[0] += utxo.value
+                        elif len(utxodata) == 1:
+                                colour_id = utxodata[0][0]
+                                value = utxodata[0][1]
+                                balances[colour_id] += value
 
-			balances = {0:[0, "balance"]}
+                #self.setColourChecked(checked)
+		self.balanceCaches = balances
 
-			for addr in addressData:
-				for utxo in addr["unspent_outputs"]:
-					utxohash = utxo["tx_hash"].decode("hex")[::-1].encode("hex")
-					utxodata = self.colourer.ccagent.color_data.get_any(utxohash, utxo["tx_output_n"])
-					if utxodata == []:
-						balances[0][0] += utxo["value"]
-					elif len(utxodata) == 1:
-						colour_id = utxodata[0][0]
-						value = utxodata[0][1]
-						label = utxodata[0][2]
-						if not colour_id in balances:
-							balances[colour_id] = [value, label]
-						else:
-							balances[colour_id][0] += value
+		for i in balances.keys():
+			print "%i => %d" % (i, balances[i])
 
-			#self.setColourChecked(checked)
-			self.balanceCaches = balances
-
-			maxLabelSize = len(balances[max(balances, key=lambda i: len(balances[i][1]))][1])
-
-			for i in balances.keys():
-				print "(%i) %s: %d" % (i, balances[i][1].ljust(maxLabelSize, " "), balances[i][0])
-
-	#def getColourChecked(self):
-	#	try:
-	#		f = open("ColourChecked.dat", "r")
-	#		data = f.readlines()
-	#		return data
-	#	except:
-	#		return []
-	#
-	#def setColourChecked(self, txhashes):
-	#	f = open("ColourChecked.dat", "a")
-	#	for i in txhashes:
-	#		f.write(i + "\n")
-	#	f.close()
+        def selectUTXOs(self, utxo_candidates, color, value):
+                total = 0
+                selected_utxos = []
+                for utxo in utxo_candidates:
+                        cdata = self.colourer.ccagent.color_data.get_any(utxo.txhash, utxo.outindex)
+                        if not cdata: cdata = [[None]]
+                        if (cdata[0][0] != color):
+                                continue
+                        selected_utxos.append(utxo)
+                        total += utxo.value
+                        if total >= value:
+                                return (selected_utxos, total)
+                raise Exception("Not enough funds")
+                                
+                        
 
 	def send(self, ddestination_address, dcolourid = None):
-		destination_address = [ddestination_address]
-		source_address = [self.addresses[i].pubkey for i in range(len(self.addresses))]
-		wifs = [self.addresses[i].privkey for i in range(len(self.addresses))]
-
-
 		self.colourer.ccagent.update()
-
-		total_value = 0
-		coins_from = []
-
-		for bca in source_address:
-			coins_sources = blockchain_info.coin_sources_for_address(bca)
-
-			for source in coins_sources:
-				txhashhex = source[0][::-1].encode("hex")
-				txn = source[1]
-				utxodata = self.colourer.ccagent.color_data.get_any(txhashhex, txn)
-				if not utxodata: utxodata = [[None]]
-
-				if not utxodata[0][0] == dcolourid:
-					coins_sources.remove(source)
-
-			coins_from.extend(coins_sources)
-			total_value += sum(cs[-1].coin_value for cs in coins_sources)
-
-		secret_exponents = []
-		for l in wifs:
-			secret_exponents.append(encoding.wif_to_secret_exponent(l))
 
 		coins_to = []
 		total_spent = 0
-		for daa in destination_address:
+		for daa in [ddestination_address]:
 			address, amount = daa[0], daa[1]
 			amount = btc_to_satoshi(amount)
 			total_spent += amount
 			coins_to.append((amount, address))
 
-		change = (total_value - total_spent) - 10000
+                selected_utxos, total_value = self.selectUTXOs(self.getAllUTXOs(), dcolourid, total_spent)
+                change = (total_value - total_spent) - 10000
+                if change >= 1:
+			coins_to.append((change, self.addresses[0].pubkey))
 
-		if change >= 1:
-			coins_to.append((change, source_address[0]))
+                coins_from = [utxo.get_pycoin_coin_source() for utxo in selected_utxos]
+                secret_exponents = [encoding.wif_to_secret_exponent(address.privkey)
+                                   for address in self.addresses]
 
 		unsigned_tx = UnsignedTx.standard_tx(coins_from, coins_to)
 		solver = SecretExponentSolver(secret_exponents)
