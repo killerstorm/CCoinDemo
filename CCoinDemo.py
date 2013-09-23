@@ -26,41 +26,6 @@ md5 = lambda h: hashlib.md5(h).digest()
 
 txdata = TransactionData()
 
-class Colourer():
-	def __init__(self):
-		from coloredcoinlib import agent
-		from coloredcoinlib import blockchain
-		from coloredcoinlib import builder
-		from coloredcoinlib import colordef
-		from coloredcoinlib import store
-
-		# Ripped from test.py
-
-                config = None
-                with open("config.json", "r") as fp:
-                        config = json.load(fp)
-
-		self.blockchain_state = blockchain.BlockchainState(config['url'])
-		self.store_conn = store.DataStoreConnection("color.db")
-
-		self.cdstore = store.ColorDataStore(self.store_conn.conn)
-		self.metastore = store.ColorMetaStore(self.store_conn.conn)
-
-		genesis = config['genesis']
-
-		self.colordef1 = colordef.OBColorDefinition(1, genesis)
-		self.colordefman = agent.ColorDefinitionManager()
-
-		self.cdbuilder = builder.FullScanColorDataBuilder(self.cdstore, self.blockchain_state, self.colordef1, self.metastore)
-		
-		self.mempoolcd = agent.MempoolColorData(self.blockchain_state)
-		self.cdata = agent.ThickColorData(self.cdbuilder, self.mempoolcd, self.blockchain_state, self.colordefman, self.cdstore)
-                wallet = agent.CAWallet()
-
-		self.ccagent = agent.ColoredCoinAgent(self.blockchain_state, self.cdata, wallet)
-        
-		self.ccagent.update()
-
 class Address():
 	def __init__(self, pubkey, privkey, rawPubkey, rawPrivkey):
 		self.pubkey = pubkey
@@ -102,49 +67,57 @@ class Account():
 		self.addresses = addresses
 		self.username = username
 		self.passwordKey = passwordKey
-		self.colourer = Colourer()
+                self.init_colordata()
 
-		self.allBalanceCache = None # This includes coloured coins. Used to check whether we should perform getany
-		self.balanceCaches = {} # "balance":normal balance, colour_id:[balance, label]
+        def init_colordata(self):
+		from coloredcoinlib import agent
+		from coloredcoinlib import blockchain
+		from coloredcoinlib import builder
+		from coloredcoinlib import colordef
+		from coloredcoinlib import store
 
-	@classmethod
-	def new(self):
-		print "Enter username"
-		username = raw_input("> ")
+		# Ripped from test.py
 
-		print "Enter password"
-		passwordKey = util.KDF(raw_input("> "))
+                config = None
+                with open("config.json", "r") as fp:
+                        config = json.load(fp)
 
-		addresses = [Address.new()]
+		blockchain_state = blockchain.BlockchainState(config['url'])
+		self.store_conn = store.DataStoreConnection("color.db")
+
+		cdstore = store.ColorDataStore(self.store_conn.conn)
+		metastore = store.ColorMetaStore(self.store_conn.conn)
+
+		genesis = config['genesis']
+
+		colordef1 = colordef.OBColorDefinition(1, genesis)
+		colordefman = agent.ColorDefinitionManager()
+
+		cdbuilder = builder.FullScanColorDataBuilder(cdstore, blockchain_state, colordef1, metastore)
 		
-		return self(addresses, username, passwordKey)
+		mempoolcd = agent.MempoolColorData(blockchain_state)
+		self.colordata = agent.ThickColorData(cdbuilder, mempoolcd, blockchain_state, colordefman, cdstore)
+		self.colordata.update()
+
 
 	@classmethod
-	def login(self):
-		print "Enter username"
-		username = raw_input("> ")
+	def new(self, username):
+		addresses = [Address.new()]
+		return self(addresses, username, "")
 
-		print "Enter password"
-		passwordKey = util.KDF(raw_input("> "))
-
+	@classmethod
+	def login(self, username):
 		fname = md5(username).encode("hex") + ".walletdat"
 		f = open(fname, "r")
 		cipherData = f.read()
 		f.close()
-
                 jsonData = cipherData
-
-#		cipher = AES.new(passwordKey)
-#		jsonData = util.removeNearest16Pad(cipher.decrypt(cipherData))
-
 		data = loads(jsonData)
-
 		addresses = []
-
 		for i in data["addresses"]:
 			addresses.append(Address.fromObj(i))
+		return self(addresses, username, "")
 
-		return self(addresses, username, passwordKey)
 
 	def save(self):
 		data = {}
@@ -183,12 +156,12 @@ class Account():
 
 	def getBalance(self):
                 utxos = self.getAllUTXOs()
-                self.colourer.ccagent.update()
+                self.colordata.update()
 
                 balances = defaultdict(int)
 
                 for utxo in utxos:
-                        utxodata = self.colourer.ccagent.color_data.get_any(utxo.txhash, utxo.outindex)
+                        utxodata = self.colordata.get_any(utxo.txhash, utxo.outindex)
                         if utxodata == []:
                                 balances[0] += utxo.value
                         elif len(utxodata) == 1:
@@ -206,7 +179,7 @@ class Account():
                 total = 0
                 selected_utxos = []
                 for utxo in utxo_candidates:
-                        cdata = self.colourer.ccagent.color_data.get_any(utxo.txhash, utxo.outindex)
+                        cdata = self.colordata.get_any(utxo.txhash, utxo.outindex)
                         if not cdata: cdata = [[None]]
                         if (cdata[0][0] != color):
                                 continue
@@ -219,7 +192,7 @@ class Account():
                         
 
 	def send(self, ddestination_address, dcolourid = None):
-		self.colourer.ccagent.update()
+		self.colordata.update()
 
 		coins_to = []
 		total_spent = 0
@@ -250,23 +223,29 @@ class Account():
 		print tx_hex
 
 		URL = "http://blockchain.info/pushtx"
-		urllib2.urlopen(URL, data=tx_hex)
+		urllib2.urlopen(URL, data=tx_hex)   
+                
+                
 
-class Wallet():
-	def __init__(self):
+class Interactive():
+	def __init__(self, username):
 		self.isRunning = True
-		self.title()
+		self.title(username)
 		self.prompt()
 
-	def title(self):
+	def title(self, username):
 		print "Register"
 		print "Login"
 		m = raw_input("> ").lower()
 
 		if m in "register reg new r".split(" "):
-			self.account = Account.new()
+                        if not username:
+                                username = raw_input("Username > ")
+			self.account = Account.new(username)
 		elif m in "login log l".split(" "):
-			self.account = Account.login()
+                        if not username:
+                                username = raw_input("Username > ")
+			self.account = Account.login(username)
 		else:
 			print "Unknown command: %s" % m
 			self.title()
@@ -303,8 +282,43 @@ class Wallet():
 			else:
 				print "Unknown Command: %s" % m
 
-	def update(self):
-		pass
+
+
+def main():
+        import sys
+        import getopt
+        try:
+                opts, args = getopt.getopt(sys.argv[1:], "", ["new", "username="])
+        except getopt.GetoptError:
+                print "arg error"
+                sys.exit(2)
+                
+        create_new = False
+        username = None
+        for opt, arg in opts:
+                if opt == "--username":
+                        username = arg
+                elif opt == "--new":
+                        create_new = True
+
+        if not args:
+                return Interactive(username)
+        if not username:
+                username = "default"
+
+        if create_new:
+                account = Account.new(username)
+        else:
+                account = Account.login(username)
+
+        command = args[0]
+        if command == "address":
+                account.printAddresses()
+        elif command == "balance":
+                account.getBalance()
+        else:
+                print "wat"
+        account.save()
 
 if __name__ == "__main__":
-	w = Wallet()
+        main()

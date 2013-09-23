@@ -45,6 +45,7 @@ class ThickColorData(ColorData):
             return self.cdstore.get_any(txhash, outindex)
         
     def update(self):
+        self.blockchain_state.update()
         self.colordefman.update()
         self.cdbuilder.update()
         self.mempoolcd.update()
