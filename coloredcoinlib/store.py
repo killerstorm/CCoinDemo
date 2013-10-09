@@ -62,8 +62,21 @@ class ColorMetaStore(DataStore):
         if not self.table_exists('builder_state'):
             self.execute("CREATE TABLE builder_state (color_id INTEGER, height INTEGER)")
             self.execute("CREATE UNIQUE INDEX builder_state_idx on builder_state(color_id)")
+        if not self.table_exists('color_map'):
+            self.execute("CREATE TABLE color_map (color_id INTEGER PRIMARY KEY AUTOINCREMENT, color_desc TEXT)")
+            self.execute("CREATE UNIQUE INDEX color_map_idx ON color_map(color_desc)")
     def get_scan_height(self, color_id):
         return unwrap1(self.execute("SELECT height FROM builder_state WHERE color_id = ?", (color_id, )).fetchone())
     def set_scan_height(self, color_id, height):
         self.execute("INSERT OR REPLACE INTO builder_state VALUES (?, ?)", (color_id, height))
+    def resolve_color_desc(self, color_desc):
+        q = "SELECT color_id FROM color_map WHERE color_desc = ?"
+        res = self.execute(q, (color_desc, )).fetchone()
+        if res == None:
+            self.execute("INSERT INTO color_map(color_id, color_desc) VALUES (NULL, ?)", (color_desc,))
+            res = self.execute(q, (color_desc, )).fetchone()
+        return res
+    def find_color_desc(self, color_id):
+        q = "SELECT color_desc FROM color_map WHERE color_id = ?"
+        return self.execute(q, (color_id,)).fetchone()
                                 
